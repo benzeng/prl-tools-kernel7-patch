@@ -1,0 +1,10 @@
+# 原始/产物二进制不进仓库（版权归 Parallels）
+*.tar.gz
+*.ko
+*.ko.xz
+*.o
+.*.cmd
+*.symvers
+*.mod
+modules.order
+.tmp_versions/

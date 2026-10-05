@@ -1,0 +1,1092 @@
+diff -ruN a/prl_eth/pvmnet/ApiNet.h b/prl_eth/pvmnet/ApiNet.h
+--- a/prl_eth/pvmnet/ApiNet.h	2026-10-06 01:03:39.712863475 +0800
++++ b/prl_eth/pvmnet/ApiNet.h	2026-10-06 01:03:39.718534469 +0800
+@@ -20,7 +20,7 @@
+ // We need some standard types definitions here
+ #include "ParallelsTypes.h"
+ 
+-#include <Interfaces/packed.h>
++#include "Interfaces/packed.h"
+ 
+ // Ring buffer for packets maximum size
+ #define IO_NET_SIZE (256*1024)
+@@ -213,6 +213,6 @@
+ 
+ #define NET_IS_SENDBUF_EMPTY(netbuf) \
+ 	((netbuf)->uSendTail == (netbuf)->uSendHead)
+-#include <Interfaces/unpacked.h>
++#include "Interfaces/unpacked.h"
+ 
+ #endif // API_NET_H
+diff -ruN a/prl_eth/pvmnet/pvmnet.c b/prl_eth/pvmnet/pvmnet.c
+--- a/prl_eth/pvmnet/pvmnet.c	2026-10-06 01:03:39.712806618 +0800
++++ b/prl_eth/pvmnet/pvmnet.c	2026-10-06 01:03:39.718576223 +0800
+@@ -165,21 +165,6 @@
+  */
+ 
+ #ifdef HAVE_ETHTOOL_OPS
+-static int pvmnet_get_settings(struct net_device *dev,
+-			     struct ethtool_cmd *ecmd)
+-{
+-	ecmd->supported   = (SUPPORTED_1000baseT_Full |
+-			     SUPPORTED_FIBRE);
+-
+-	ecmd->port = PORT_TP;
+-	ecmd->transceiver = XCVR_EXTERNAL;
+-	ecmd->speed = SPEED_1000;
+-	ecmd->duplex = DUPLEX_FULL;
+-	ecmd->autoneg = AUTONEG_DISABLE;
+-
+-	return 0;
+-}
+-
+ static void pvmnet_get_drvinfo(struct net_device *dev,
+ 				 struct ethtool_drvinfo *info)
+ {
+@@ -191,7 +176,6 @@
+ }
+ 
+ static struct ethtool_ops pvmnet_ethtool_ops = {
+-	.get_settings           = pvmnet_get_settings,
+ 	.get_drvinfo            = pvmnet_get_drvinfo,
+ 	.get_link               = ethtool_op_get_link,
+ #if (LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,39))
+@@ -393,7 +377,6 @@
+ #else
+    .ndo_set_rx_mode = pvmnet_set_multicast_list,
+ #endif
+-	.ndo_change_mtu = eth_change_mtu,
+ };
+ #endif
+ 
+@@ -435,6 +418,6 @@
+ 
+ MODULE_AUTHOR("Parallels International GmbH");
+ MODULE_DESCRIPTION("Parallels virtual network driver");
+-MODULE_LICENSE("Parallels");
++MODULE_LICENSE("GPL");
+ MODULE_VERSION(DRV_VERSION);
+ MODULE_INFO(supported, "external");
+diff -ruN a/prl_fs/SharedFolders/Guest/Linux/prl_fs/file.c b/prl_fs/SharedFolders/Guest/Linux/prl_fs/file.c
+--- a/prl_fs/SharedFolders/Guest/Linux/prl_fs/file.c	2026-10-06 01:03:39.714576049 +0800
++++ b/prl_fs/SharedFolders/Guest/Linux/prl_fs/file.c	2026-10-06 01:03:39.719353315 +0800
+@@ -129,7 +129,12 @@
+ 			ret = -EINVAL;
+ 			goto out;
+ 		}
+-		if (de->name[name_len] != 0) {
++		/*
++		 * name[] is a variable-length trailing field of the
++		 * wire-format dirent (sizeof must stay fixed for
++		 * PRLFS_DIR_REC_LEN); bounds were validated via rec_len.
++		 */
++		if (*(de->name + name_len) != 0) {
+ 			printk(PFX "invalid file name "
+ 			       "(name_len %d offset %d buflen %d)\n",
+ 				name_len, offset, buflen);
+@@ -340,11 +345,15 @@
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 26)
+ 
+ static inline
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)
++vm_fault_t __prlfs_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
++#else
+ int __prlfs_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
++#endif
+ {
+ 	struct page *page;
+ 	loff_t off;
+-	int ret;
++	vm_fault_t ret;
+ 
+ 	DPRINTK("ENTER\n");
+ 	off = vmf->pgoff << PAGE_SHIFT;
+@@ -357,12 +366,12 @@
+ 		vmf->page = page;
+ 	}
+ 
+-	DPRINTK("EXIT returning %d\n", ret);
++	DPRINTK("EXIT returning %d\n", (int)ret);
+ 	return ret;
+ }
+ 
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
+-static int prlfs_fault(struct vm_fault *vmf)
++static vm_fault_t prlfs_fault(struct vm_fault *vmf)
+ {
+ 	return __prlfs_fault(vmf->vma, vmf);
+ }
+@@ -462,7 +471,9 @@
+ 
+ struct file_operations prlfs_dir_fops = {
+ 	.open		= prlfs_open,
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,11,0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
++	.iterate_shared	= prlfs_readdir,
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(3,11,0)
+ 	.iterate	= prlfs_readdir,
+ #else
+ 	.readdir	= prlfs_readdir,
+diff -ruN a/prl_fs/SharedFolders/Guest/Linux/prl_fs/inode.c b/prl_fs/SharedFolders/Guest/Linux/prl_fs/inode.c
+--- a/prl_fs/SharedFolders/Guest/Linux/prl_fs/inode.c	2026-10-06 01:03:39.714336794 +0800
++++ b/prl_fs/SharedFolders/Guest/Linux/prl_fs/inode.c	2026-10-06 01:03:39.719122007 +0800
+@@ -61,7 +61,12 @@
+ 	bd->buf = buf;
+ 	bd->len = len;
+ 	bd->write = (write == 0) ? 0 : 1;
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
++	/* set_fs()/segment_eq() are gone; user flag now comes from the caller */
++	bd->user = (user == 0) ? 0 : 1;
++#else
+ 	bd->user = (user == 0) ? 0 : segment_eq(get_fs(), USER_DS) ? 1 : 0;
++#endif
+ 	bd->flags = TG_REQ_COMMON;
+ }
+ 
+@@ -208,12 +213,22 @@
+ 
+ 	if (attr->valid & _PATTR_SIZE)
+ 		i_size_write(inode, attr->size);
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 19, 0)
++	/* inode timestamps are set through accessors now */
++	if (attr->valid & _PATTR_ATIME)
++		inode_set_atime(inode, attr->atime, 0);
++	if (attr->valid & _PATTR_MTIME)
++		inode_set_mtime(inode, attr->mtime, 0);
++	if (attr->valid & _PATTR_CTIME)
++		inode_set_ctime(inode, attr->ctime, 0);
++#else
+ 	if (attr->valid & _PATTR_ATIME)
+ 		SET_INODE_TIME(inode->i_atime, attr->atime);
+ 	if (attr->valid & _PATTR_MTIME)
+ 		SET_INODE_TIME(inode->i_mtime, attr->mtime);
+ 	if (attr->valid & _PATTR_CTIME)
+ 		SET_INODE_TIME(inode->i_ctime, attr->ctime);
++#endif
+ 	if (attr->valid & _PATTR_MODE)
+ 		inode->i_mode = (inode->i_mode & S_IFMT) | (attr->mode & 0777);
+ 	if ((attr->valid & _PATTR_UID) &&
+@@ -285,7 +300,11 @@
+         return ret;
+ }
+ 
+-static int prlfs_create(struct inode *dir, struct dentry *dentry,
++static int prlfs_create(
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
++			struct mnt_idmap *idmap,
++#endif
++			struct inode *dir, struct dentry *dentry,
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,3,0)
+ 			umode_t mode
+ #else
+@@ -342,7 +361,9 @@
+ 	}
+ 	dentry->d_time = jiffies;
+ 	d_add(dentry, inode);
++#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 1, 0)
+ 	d_set_d_op(dentry, &prlfs_dentry_ops);
++#endif
+ out_free:
+ 	kfree(attr);
+ out:
+@@ -363,7 +384,27 @@
+         return ret;
+ }
+ 
+-static int prlfs_mkdir(struct inode *dir, struct dentry *dentry,
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 1, 0)
++/* ->mkdir returns the new dentry now */
++static struct dentry *prlfs_mkdir(struct mnt_idmap *idmap,
++			struct inode *dir, struct dentry *dentry,
++			umode_t mode)
++{
++	int ret;
++
++	DPRINTK("ENTER\n");
++	ret = prlfs_inode_open(dentry, mode | S_IFDIR);
++	if (ret == 0)
++		ret = prlfs_mknod(dir, dentry, mode | S_IFDIR);
++	DPRINTK("EXIT returning %d\n", ret);
++	return ret ? ERR_PTR(ret) : dentry;
++}
++#else
++static int prlfs_mkdir(
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
++			struct mnt_idmap *idmap,
++#endif
++			struct inode *dir, struct dentry *dentry,
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,3,0)
+ 			umode_t mode
+ #else
+@@ -380,6 +421,7 @@
+ 	DPRINTK("EXIT returning %d\n", ret);
+ 	return ret;
+ }
++#endif
+ 
+ static int prlfs_rmdir(struct inode *dir, struct dentry *dentry)
+ {
+@@ -421,8 +463,12 @@
+ }
+ 
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)
+-static int prlfs_rename2(struct inode *old_dir, struct dentry *old_de,
+-			struct inode *new_dir, struct dentry *new_de, unsigned int flags)
++static int prlfs_rename2(
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
++			 struct mnt_idmap *idmap,
++#endif
++			 struct inode *old_dir, struct dentry *old_de,
++				struct inode *new_dir, struct dentry *new_de, unsigned int flags)
+ {
+ 	if (flags)
+ 		return -EINVAL;
+@@ -441,7 +487,11 @@
+ 	return *prlfs_dfl(dentry) & PRL_DFL_UNLINKED;
+ }
+ 
+-static int prlfs_inode_setattr(struct inode *inode, struct iattr *attr)
++static int prlfs_inode_setattr(
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
++			      struct mnt_idmap *idmap,
++#endif
++			      struct inode *inode, struct iattr *attr)
+ {
+ 	int ret = 0;
+ 
+@@ -455,14 +505,22 @@
+ 			goto out;
+ 		truncate_setsize(inode, attr->ia_size);
+ 	}
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
++	setattr_copy(idmap, inode, attr);
++#else
+ 	setattr_copy(inode, attr);
++#endif
+ 	mark_inode_dirty(inode);
+ out:
+ #endif
+ 	return ret;
+ }
+ 
+-static int prlfs_setattr(struct dentry *dentry, struct iattr *attr)
++static int prlfs_setattr(
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
++			 struct mnt_idmap *idmap,
++#endif
++			 struct dentry *dentry, struct iattr *attr)
+ {
+ 	struct prlfs_attr *pattr;
+ 	struct buffer_descriptor bd;
+@@ -483,7 +541,11 @@
+ 	init_buffer_descriptor(&bd, pattr, PATTR_STRUCT_SIZE, 0, 0);
+ 	ret = host_request_attr(sb, p, buflen, &bd);
+ 	if (ret == 0)
+-		ret = prlfs_inode_setattr(dentry->d_inode, attr);
++		ret = prlfs_inode_setattr(
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
++			idmap,
++#endif
++			dentry->d_inode, attr);
+ 	dentry->d_time = 0;
+ out_free_pattr:
+ 	kfree(pattr);
+@@ -532,7 +594,11 @@
+ 	return ret;
+ }
+ 
+-static int prlfs_d_revalidate(struct dentry *dentry,
++static int prlfs_d_revalidate(
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 1, 0)
++		struct inode *dir, const struct qstr *name,
++#endif
++		struct dentry *dentry,
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
+ 					int flags
+ #elif LINUX_VERSION_CODE < KERNEL_VERSION(3,6,0)
+@@ -557,7 +623,11 @@
+ 
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 0)
+ 
+-inline int __prlfs_getattr(struct dentry *dentry, struct kstat *stat)
++inline int __prlfs_getattr(
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
++			   struct mnt_idmap *idmap, u32 request_mask,
++#endif
++			   struct dentry *dentry, struct kstat *stat)
+ {
+ 	int ret;
+ 	DPRINTK("ENTER\n");
+@@ -570,7 +640,13 @@
+ 	if (ret < 0)
+ 		goto out;
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 1, 0)
++	generic_fillattr(idmap, request_mask, dentry->d_inode, stat);
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
++	generic_fillattr(idmap, dentry->d_inode, stat);
++#else
+ 	generic_fillattr(dentry->d_inode, stat);
++#endif
+ 	if (PRLFS_SB(dentry->d_sb)->share) {
+ 		if (uid_valid(stat->uid))
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,29)
+@@ -591,10 +667,18 @@
+ }
+ 
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
+-static int prlfs_getattr(const struct path *path, struct kstat *stat,
+-		u32 request_mask, unsigned int query_flags)
+-{
+-	return __prlfs_getattr(path->dentry, stat);
++static int prlfs_getattr(
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
++			 struct mnt_idmap *idmap,
++#endif
++			 const struct path *path, struct kstat *stat,
++			u32 request_mask, unsigned int query_flags)
++{
++	return __prlfs_getattr(
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
++				idmap, request_mask,
++#endif
++				path->dentry, stat);
+ }
+ #else
+ static int prlfs_getattr(struct vfsmount *mnt, struct dentry *dentry,
+@@ -629,7 +713,11 @@
+ #define PERMISSION_PRECHECK	(flags & IPERM_FLAG_RCU)
+ #else
+ /* 3.1 ... ? */
+-static int prlfs_permission(struct inode *inode, int mask)
++static int prlfs_permission(
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
++			   struct mnt_idmap *idmap,
++#endif
++			   struct inode *inode, int mask)
+ #define PERMISSION_PRECHECK	(mask & MAY_NOT_BLOCK)
+ #endif
+ {
+@@ -762,7 +850,11 @@
+ }
+ #endif
+ 
+-static int prlfs_symlink(struct inode *dir, struct dentry *dentry,
++static int prlfs_symlink(
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
++			 struct mnt_idmap *idmap,
++#endif
++			 struct inode *dir, struct dentry *dentry,
+                          const char *symname)
+ {
+ 	PRLFS_STD_INODE_HEAD(dentry)
+@@ -823,7 +915,11 @@
+ #endif
+ };
+ 
+-static int prlfs_root_revalidate(struct dentry *dentry,
++static int prlfs_root_revalidate(
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 1, 0)
++		struct inode *dir, const struct qstr *name,
++#endif
++		struct dentry *dentry,
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
+ 					int flags
+ #elif LINUX_VERSION_CODE < KERNEL_VERSION(3,6,0)
+@@ -871,8 +967,16 @@
+ 	if (inode) {
+ 		inode->i_mode = mode;
+ 		inode->i_blocks = 0;
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 19, 0)
++		{
++			struct timespec64 now = inode_set_ctime_current(inode);
++			inode_set_atime_to_ts(inode, now);
++			inode_set_mtime_to_ts(inode, now);
++		}
++#else
+ 		inode->i_ctime = prlfs_current_time(inode);
+ 		inode->i_atime = inode->i_mtime = inode->i_ctime;
++#endif
+ 		inode->i_uid = PRLFS_SB(sb)->uid;
+ 		inode->i_gid = PRLFS_SB(sb)->gid;
+ 		SET_INODE_INO(inode);
+@@ -901,8 +1005,16 @@
+ 	struct super_block *sb = inode->i_sb;
+ 
+ 	inode->i_mode = S_IFDIR | S_IRUGO | S_IXUGO | S_IWUSR;
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 19, 0)
++	{
++		struct timespec64 now = inode_set_ctime_current(inode);
++		inode_set_atime_to_ts(inode, now);
++		inode_set_mtime_to_ts(inode, now);
++	}
++#else
+ 	inode->i_ctime = prlfs_current_time(inode);
+ 	inode->i_atime = inode->i_mtime = inode->i_ctime;
++#endif
+ 	inode->i_uid = PRLFS_SB(sb)->uid;
+ 	inode->i_gid = PRLFS_SB(sb)->gid;
+ 	if (ino == PRLFS_ROOT_INO) {
+diff -ruN a/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile b/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile
+--- a/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile	2026-10-06 01:03:39.714443904 +0800
++++ b/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile	2026-10-06 01:03:39.719222839 +0800
+@@ -21,6 +21,10 @@
+ 
+ export DRIVER_DIR
+ 
++# symbols exported by prl_tg (Module.symvers is copied here before build)
++KBUILD_EXTRA_SYMBOLS ?= $(DRIVER_DIR)/Module.symvers
++export KBUILD_EXTRA_SYMBOLS
++
+ EXTRA_CFLAGS +=  -I$(DRIVER_DIR)
+ 
+ ifeq "$(wildcard $(DRIVER_DIR)/Makefile.local)" "$(DRIVER_DIR)/Makefile.local"
+diff -ruN a/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile.v26 b/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile.v26
+--- a/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile.v26	2026-10-06 01:03:39.714415804 +0800
++++ b/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile.v26	2026-10-06 01:03:39.719184028 +0800
+@@ -7,10 +7,10 @@
+ obj-m := $(DRIVER).o
+ $(DRIVER)-objs := super.o inode.o file.o interface.o
+ 
+-EXTRA_CFLAGS	+= -I$(DRIVER_DIR)/../../../../ -DPRLFS_IGET
++ccflags-y += -I$(src)/../../../../ -DPRLFS_IGET
+ 
+ all:
+-	make -C $(KERNEL_DIR) M=$(PWD)
++	make -C $(KERNEL_DIR) M=$(PWD) KBUILD_EXTRA_SYMBOLS=$(PWD)/Module.symvers
+ 
+ clean:
+ 	make -C $(KERNEL_DIR) M=$(PWD) clean
+diff -ruN a/prl_fs/SharedFolders/Guest/Linux/prl_fs/prlfs_compat.h b/prl_fs/SharedFolders/Guest/Linux/prl_fs/prlfs_compat.h
+--- a/prl_fs/SharedFolders/Guest/Linux/prl_fs/prlfs_compat.h	2026-10-06 01:03:39.714491449 +0800
++++ b/prl_fs/SharedFolders/Guest/Linux/prl_fs/prlfs_compat.h	2026-10-06 01:03:39.719081209 +0800
+@@ -9,6 +9,9 @@
+ #ifndef __PRL_FS_COMPAT_H__
+ #define __PRL_FS_COMPAT_H__
+ 
++#include <linux/slab.h>
++#include <linux/string.h>
++
+ static struct proc_dir_entry *
+ prlfs_proc_create(char *name, umode_t mode, struct proc_dir_entry *parent,
+                   struct file_operations *fops)
+@@ -18,6 +21,21 @@
+ 	if (p)
+ 		p->proc_fops = fops;
+ 	return p;
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
++	/* proc_create() takes struct proc_ops since 5.6 */
++	{
++		struct proc_ops *pops = kmalloc(sizeof(*pops), GFP_KERNEL);
++
++		if (!pops)
++			return NULL;
++		memset(pops, 0, sizeof(*pops));
++		pops->proc_open = fops->open;
++		pops->proc_read = fops->read;
++		pops->proc_write = fops->write;
++		pops->proc_lseek = fops->llseek;
++		pops->proc_release = fops->release;
++		return proc_create(name, mode, parent, pops);
++	}
+ #else
+ 	return proc_create(name, mode, parent, fops);
+ #endif
+diff -ruN a/prl_fs/SharedFolders/Guest/Linux/prl_fs/super.c b/prl_fs/SharedFolders/Guest/Linux/prl_fs/super.c
+--- a/prl_fs/SharedFolders/Guest/Linux/prl_fs/super.c	2026-10-06 01:03:39.714515851 +0800
++++ b/prl_fs/SharedFolders/Guest/Linux/prl_fs/super.c	2026-10-06 01:03:39.719300643 +0800
+@@ -13,6 +13,8 @@
+ #include <linux/seq_file.h>
+ #include <linux/ctype.h>
+ #include <linux/vfs.h>
++#include <linux/mount.h>
++#include <linux/fs_context.h>
+ #include "prlfs.h"
+ #include "prlfs_compat.h"
+ 
+@@ -25,6 +27,7 @@
+ 
+ extern struct file_operations prlfs_names_fops;
+ extern struct inode_operations prlfs_names_iops;
++extern struct dentry_operations prlfs_dentry_ops;
+ 
+ static int prlfs_strtoui(char *cp, unsigned *result){
+ 	int ret = 0;
+@@ -111,6 +114,8 @@
+ 	return ret;
+ }
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)
++/* ->remount_fs was removed from super_operations */
+ static int prlfs_remount(struct super_block *sb, int *flags, char *data)
+ {
+ 	int ret = 0;
+@@ -123,6 +128,7 @@
+ 	DPRINTK("EXIT returning %d\n", ret);
+ 	return ret;
+ }
++#endif
+ 
+ static void prlfs_put_super(struct super_block *sb)
+ {
+@@ -138,7 +144,12 @@
+ 	struct inode *inode;
+ 
+ 	inode = iget_locked(sb, ino);
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 1, 0)
++	/* i_state became a typed struct; access it via inode_state_read() */
++	if (inode && (inode_state_read(inode) & I_NEW)) {
++#else
+ 	if (inode && (inode->i_state & I_NEW)) {
++#endif
+ 		prlfs_read_inode(inode);
+ 		unlock_new_inode(inode);
+ 	}
+@@ -179,7 +190,9 @@
+ 	.read_inode	= prlfs_read_inode,
+ #endif
+ 	.statfs         = prlfs_statfs,
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)
+ 	.remount_fs	= prlfs_remount,
++#endif
+ 	.put_super	= prlfs_put_super,
+ };
+ 
+@@ -228,9 +241,13 @@
+ 	sb->s_maxbytes = MAX_LFS_FILESIZE;
+ 	sb->s_blocksize = PAGE_SIZE;
+ 	sb->s_blocksize_bits = PAGE_SHIFT;
+-	sb->s_flags |= MS_NOSUID | MS_NOATIME | MS_SYNCHRONOUS;
++	sb->s_flags |= SB_NOSUID | SB_NOATIME | SB_SYNCHRONOUS;
+ 	sb->s_magic = PRLFS_MAGIC;
+ 	sb->s_op = &prlfs_super_ops;
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 1, 0)
++	/* per-dentry d_set_d_op() is gone; set the default once */
++	set_default_d_op(sb, &prlfs_dentry_ops);
++#endif
+ 	PRLFS_ALLOC_SB_INFO(sb);
+ 	prlfs_sb = PRLFS_SB(sb);
+ 	if (prlfs_sb == NULL) {
+@@ -330,6 +347,60 @@
+ 	return ret;
+ }
+ #else
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 5, 0)
++/* file_system_type.mount was replaced by the fs_context API */
++static int prlfs_fill_super_fc(struct super_block *sb, struct fs_context *fc)
++{
++	void *data = fc->fs_private;
++	bool own_data = false;
++	int ret;
++
++	if (!data && fc->source) {
++		/*
++		 * New mount API (fsopen/fsconfig) never calls
++		 * parse_monolithic; the share name arrives as fc->source.
++		 */
++		data = extend_mount_data(NULL, fc->source);
++		if (!data)
++			return -ENOMEM;
++		own_data = true;
++	}
++	ret = prlfs_fill_super(sb, data, fc->sb_flags & SB_SILENT);
++	if (own_data)
++		kfree(data);
++	return ret;
++}
++
++static int prlfs_get_tree(struct fs_context *fc)
++{
++	int ret = get_tree_nodev(fc, prlfs_fill_super_fc);
++
++	kfree(fc->fs_private);
++	fc->fs_private = NULL;
++	return ret;
++}
++
++static int prlfs_parse_monolithic(struct fs_context *fc, void *data)
++{
++	void *ext_data = extend_mount_data(data, fc->source);
++
++	if (!ext_data)
++		return -ENOMEM;
++	fc->fs_private = ext_data;
++	return 0;
++}
++
++static const struct fs_context_operations prlfs_fc_ops = {
++	.parse_monolithic = prlfs_parse_monolithic,
++	.get_tree	= prlfs_get_tree,
++};
++
++static int prlfs_init_fs_context(struct fs_context *fc)
++{
++	fc->ops = &prlfs_fc_ops;
++	return 0;
++}
++#else
+ static struct dentry *prlfs_mount(struct file_system_type *fs_type,
+ 				  int flags, const char *dev_name,
+ 				  void *raw_data)
+@@ -344,6 +415,7 @@
+ 	return de;
+ }
+ #endif
++#endif
+ #else
+ static struct super_block *prlfs_read_super(struct super_block *sb,
+ 							void *data, int flags)
+@@ -360,6 +432,8 @@
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0)
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,39)
+ 	.get_sb		= prlfs_get_sb,
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 5, 0)
++	.init_fs_context = prlfs_init_fs_context,
+ #else
+ 	.mount		= prlfs_mount,
+ #endif
+@@ -577,7 +651,7 @@
+ 
+ MODULE_AUTHOR ("Parallels International GmbH");
+ MODULE_DESCRIPTION ("Parallels linux guest filesystem");
+-MODULE_LICENSE("Parallels");
++MODULE_LICENSE("GPL");
+ #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 0)
+ MODULE_INFO (supported, "external");
+ #endif
+diff -ruN a/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prl_fs_freeze.c b/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prl_fs_freeze.c
+--- a/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prl_fs_freeze.c	2026-10-06 01:03:39.715151060 +0800
++++ b/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prl_fs_freeze.c	2026-10-06 01:03:39.720553420 +0800
+@@ -15,6 +15,7 @@
+ #include <linux/module.h>
+ #include <linux/fs.h>
+ #include <linux/buffer_head.h>
++#include <linux/blkdev.h>
+ #include <linux/proc_fs.h>
+ #include <linux/seq_file.h>
+ #include <linux/workqueue.h>
+@@ -137,6 +138,17 @@
+ 	if (!fsb)
+ 		return -ENOMEM;
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
++	{
++		int err = bdev_freeze(sb->s_bdev);
++
++		if (err) {
++			kfree(fsb);
++			return err;
++		}
++		fsb->sb = sb;
++	}
++#else
+ 	res = freeze_bdev(sb->s_bdev);
+ 	if (!res)
+ 		res = ERR_PTR(-ENODEV);
+@@ -147,6 +159,7 @@
+ 	}
+ 
+ 	fsb->sb = res;
++#endif
+ 	list_add_tail(&fsb->list, &frozen_sb);
+ 	return 0;
+ }
+@@ -158,7 +171,11 @@
+ 	list_for_each_entry(fsb, &frozen_sb, list) {
+ 		if (fsb->sb != sb)
+ 			continue;
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
++		bdev_thaw(fsb->sb->s_bdev);
++#else
+ 		thaw_bdev(fsb->sb->s_bdev, fsb->sb);
++#endif
+ 		list_del(&fsb->list);
+ 		kfree(fsb);
+ 		return 0;
+@@ -193,7 +210,11 @@
+ 
+ 	mutex_lock(&frozen_mutex);
+ 	list_for_each_entry_safe(fsb, tmp, &frozen_sb, list) {
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
++		bdev_thaw(fsb->sb->s_bdev);
++#else
+ 		thaw_bdev(fsb->sb->s_bdev, fsb->sb);
++#endif
+ 		kfree(fsb);
+ 	}
+ 	INIT_LIST_HEAD(&frozen_sb);
+@@ -217,7 +238,16 @@
+ }
+ 
+ DECLARE_WORK(thaw_work, thaw_timeout);
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
++/* DEFINE_TIMER() takes only the callback since 4.15 */
++static void thaw_timer_cb(struct timer_list *t)
++{
++	schedule_work(&thaw_work);
++}
++DEFINE_TIMER(thaw_timer, thaw_timer_cb);
++#else
+ DEFINE_TIMER(thaw_timer, thaw_timer_fn, 0, (unsigned long)&(thaw_work));
++#endif
+ 
+ bool schedule_thaw_work(struct work_struct *work, unsigned long timeout)
+ {
+@@ -230,7 +260,12 @@
+ 
+ void cancel_timeout(void)
+ {
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 2, 0)
++	/* del_timer_sync() was renamed */
++	timer_delete_sync(&thaw_timer);
++#else
+ 	del_timer_sync(&thaw_timer);
++#endif
+ 	flush_scheduled_work();
+ }
+ 
+@@ -363,11 +398,18 @@
+ int seq_show(struct seq_file *file, void *data)
+ {
+ 	struct frozen_sb *fsb;
+-	char buf[BDEVNAME_SIZE];
+ 
+ 	fsb = list_entry((struct list_head*)data, struct frozen_sb, list);
+-	bdevname(fsb->sb->s_bdev, buf);
+-	seq_printf(file, "%s\n", buf);
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
++	/* bdevname()/BDEVNAME_SIZE are gone; %pg prints the bdev name */
++	seq_printf(file, "%pg\n", fsb->sb->s_bdev);
++#else
++	{
++		char buf[BDEVNAME_SIZE];
++		bdevname(fsb->sb->s_bdev, buf);
++		seq_printf(file, "%s\n", buf);
++	}
++#endif
+ 	return 0;
+ }
+ 
+@@ -392,7 +434,7 @@
+ 	.release	= seq_release,
+ };
+ 
+-int __init init_module(void)
++int __init prl_fs_freeze_init(void)
+ {
+ 	struct proc_dir_entry *entry;
+ 	entry = prlfs_freeze_proc_create("driver/prl_freeze", S_IFREG | 0664, NULL,
+@@ -402,7 +444,7 @@
+ 	return 0;
+ }
+ 
+-void __exit cleanup_module(void)
++void __exit prl_fs_freeze_exit(void)
+ {
+ 	remove_proc_entry("driver/prl_freeze", NULL);
+ 	thaw_all();
+@@ -410,8 +452,10 @@
+ }
+ 
+ MODULE_AUTHOR ("Parallels International GmbH");
++module_init(prl_fs_freeze_init);
++module_exit(prl_fs_freeze_exit);
+ MODULE_DESCRIPTION ("Parallels suspend/resume helper");
+-MODULE_LICENSE("Parallels");
++MODULE_LICENSE("GPL");
+ #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 0)
+ MODULE_INFO(supported, "external");
+ #endif
+diff -ruN a/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prlfs_freeze_compat.h b/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prlfs_freeze_compat.h
+--- a/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prlfs_freeze_compat.h	2026-10-06 01:03:39.715186287 +0800
++++ b/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prlfs_freeze_compat.h	2026-10-06 01:03:39.720521487 +0800
+@@ -7,6 +7,9 @@
+ #ifndef __PRL_FSFREEZE_COMPAT_H__
+ #define __PRL_FSFREEZE_COMPAT_H__
+ 
++#include <linux/slab.h>
++#include <linux/string.h>
++
+ static struct proc_dir_entry *
+ prlfs_freeze_proc_create(char *name, umode_t mode,
+                          struct proc_dir_entry *parent,
+@@ -17,6 +20,21 @@
+ 	if (p)
+ 		p->proc_fops = fops;
+ 	return p;
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
++	/* proc_create() takes struct proc_ops since 5.6 */
++	{
++		struct proc_ops *pops = kmalloc(sizeof(*pops), GFP_KERNEL);
++
++		if (!pops)
++			return NULL;
++		memset(pops, 0, sizeof(*pops));
++		pops->proc_open = fops->open;
++		pops->proc_read = fops->read;
++		pops->proc_write = fops->write;
++		pops->proc_lseek = fops->llseek;
++		pops->proc_release = fops->release;
++		return proc_create(name, mode, parent, pops);
++	}
+ #else
+ 	return proc_create(name, mode, parent, fops);
+ #endif
+diff -ruN a/prl_tg/Toolgate/Guest/Linux/prl_tg/Makefile.v26 b/prl_tg/Toolgate/Guest/Linux/prl_tg/Makefile.v26
+--- a/prl_tg/Toolgate/Guest/Linux/prl_tg/Makefile.v26	2026-10-06 01:03:39.713501250 +0800
++++ b/prl_tg/Toolgate/Guest/Linux/prl_tg/Makefile.v26	2026-10-06 01:03:39.721385970 +0800
+@@ -15,12 +15,13 @@
+ SRC ?= /lib/modules/$(KVER)/build
+ 
+ HEADERS_CHECK_DIR ?= $(SRC)
++ccflags-y += -I$(src)/../../../..
+ EXTRA_CFLAGS	+= $(shell \
+ 	grep -q "\<wait_for_completion_interruptible\>" \
+ 		$(HEADERS_CHECK_DIR)/include/linux/completion.h || \
+ 	echo -DPRL_INTERRUPTIBLE_COMPLETION)
+ prl_tg:	$(CFILES) $(HFILES)
+-	$(MAKE) -C $(SRC) SUBDIRS=$(shell pwd) SRCROOT=$(shell pwd) modules
++	$(MAKE) -C $(SRC) M=$(shell pwd) SRCROOT=$(shell pwd) modules
+ 
+ clean:
+ 	rm -rf *.o *.ko *.mod* *symvers .tmp_versions .*.cmd prl_tg.ver 
+diff -ruN a/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg.c b/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg.c
+--- a/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg.c	2026-10-06 01:03:39.713583149 +0800
++++ b/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg.c	2026-10-06 01:03:39.721420273 +0800
+@@ -9,6 +9,7 @@
+ #include <linux/module.h>
+ #include <linux/kernel.h>
+ #include <linux/pci.h>
++#include <linux/dma-mapping.h>
+ #include <linux/init.h>
+ #include <linux/ioport.h>
+ #include <linux/delay.h>
+@@ -134,7 +135,7 @@
+ 	int count;
+ 	/* user pages must be marked dirty if device touched them */
+ 	unsigned writable;
+-	struct page *p[0];
++	struct page *p[];
+ };
+ 
+ /* The rest of these values should never change. */
+@@ -312,8 +313,8 @@
+ 	 * also no any offset inside page needed.
+ 	 */
+ 	rq.pg = vmalloc_to_page(dst);
+-	rq.phys = pci_map_page(pdev, vmalloc_to_page(dst), 0, PAGE_SIZE,
+-			       PCI_DMA_BIDIRECTIONAL);
++	rq.phys = dma_map_page(&pdev->dev, vmalloc_to_page(dst), 0, PAGE_SIZE,
++			       DMA_BIDIRECTIONAL);
+ 
+ 	if (!rq.phys) {
+ 		DPRINTK("Can not allocate memory for DMA mapping\n");
+@@ -384,7 +385,7 @@
+ 
+ out:
+ 	page_cache_release(rq.pg);
+-	pci_unmap_page(pdev, rq.phys, PAGE_SIZE, PCI_DMA_BIDIRECTIONAL);
++	dma_unmap_page(&pdev->dev, rq.phys, PAGE_SIZE, DMA_BIDIRECTIONAL);
+ 	DPRINTK("EXIT\n");
+ 	return;
+ }
+@@ -459,8 +460,8 @@
+ 
+ 		pfn = (u64 *)(dbuf + 1);
+ 		for (j = 0; j < npages; j++, pfn++)
+-			pci_unmap_page(dev, *pfn << PAGE_SHIFT, PAGE_SIZE,
+-				       PCI_DMA_BIDIRECTIONAL);
++			dma_unmap_page(&dev->dev, *pfn << PAGE_SHIFT, PAGE_SIZE,
++				       DMA_BIDIRECTIONAL);
+ 
+ 		dbuf = (TG_PAGED_BUFFER *)((u64 *)(dbuf + 1) + npages);
+ 	}
+@@ -485,13 +486,13 @@
+ 	uple->writable = buf->Writable;
+ 	uple->count = npages;
+ 
+-	down_read(&current->mm->mmap_sem);
++	down_read(&current->mm->mmap_lock);
+ 	/* lock userspace pages */
+ 	got = prl_get_user_pages(
+ 			     sbuf->u.Va, npages,
+ 			     sbuf->Writable,
+ 			     uple->p, NULL);
+-	up_read(&current->mm->mmap_sem);
++	up_read(&current->mm->mmap_lock);
+ 
+ 	if (got < npages)
+ 		goto err_put;
+@@ -500,9 +501,9 @@
+ 	pfn = (u64 *)buf - 1;
+ 
+ 	for (; npages > 0; npages--, mapped++) {
+-		dma_addr_t addr = pci_map_page(dev, uple->p[npages-1], 0,
++		dma_addr_t addr = dma_map_page(&dev->dev, uple->p[npages-1], 0,
+ 					       PAGE_SIZE,
+-					       PCI_DMA_BIDIRECTIONAL);
++					       DMA_BIDIRECTIONAL);
+ 		if (!addr)
+ 			goto err_unmap;
+ 
+@@ -514,8 +515,8 @@
+ 
+ err_unmap:
+ 	for (i = 0; i < mapped; i++, pfn++)
+-		pci_unmap_page(dev, *pfn << PAGE_SHIFT, PAGE_SIZE,
+-			       PCI_DMA_BIDIRECTIONAL);
++		dma_unmap_page(&dev->dev, *pfn << PAGE_SHIFT, PAGE_SIZE,
++			       DMA_BIDIRECTIONAL);
+ 
+ err_put:
+ 	for(i = 0; i < got; i++)
+@@ -537,8 +538,8 @@
+ 		dma_addr_t addr;
+ 		struct page *pg = virt_to_page(buffer);
+ 
+-		addr = pci_map_page(dev, pg, 0, PAGE_SIZE,
+-				    PCI_DMA_BIDIRECTIONAL);
++		addr = dma_map_page(&dev->dev, pg, 0, PAGE_SIZE,
++				    DMA_BIDIRECTIONAL);
+ 
+ 		if (!addr)
+ 			goto err;
+@@ -550,8 +551,8 @@
+ 
+ err:
+ 	for (; i > 0; i--, pfn--)
+-		pci_unmap_page(dev, *pfn << PAGE_SHIFT, PAGE_SIZE,
+-			       PCI_DMA_BIDIRECTIONAL);
++		dma_unmap_page(&dev->dev, *pfn << PAGE_SHIFT, PAGE_SIZE,
++			       DMA_BIDIRECTIONAL);
+ 
+ 	return ERR_PTR(-ENOMEM);
+ }
+@@ -576,8 +577,8 @@
+ 		uple->p[i] = vmalloc_to_page(mem);
+ 		page_cache_get(uple->p[i]);
+ 
+-		pages[i] = pci_map_page(dev, uple->p[i], 0, PAGE_SIZE,
+-					PCI_DMA_BIDIRECTIONAL) >> PAGE_SHIFT;
++		pages[i] = dma_map_page(&dev->dev, uple->p[i], 0, PAGE_SIZE,
++					DMA_BIDIRECTIONAL) >> PAGE_SHIFT;
+ 		if (!pages[i]) {
+ 			page_cache_release(uple->p[i]);
+ 			goto err;
+@@ -588,8 +589,8 @@
+ 	return 0;
+ err:
+ 	for (i = 0; i < uple->count; i++) {
+-		pci_unmap_page(dev, pages[i] << PAGE_SHIFT,
+-			       PAGE_SIZE, PCI_DMA_BIDIRECTIONAL);
++		dma_unmap_page(&dev->dev, pages[i] << PAGE_SHIFT,
++			       PAGE_SIZE, DMA_BIDIRECTIONAL);
+ 		page_cache_release(uple->p[i]);
+ 	}
+ 	kfree(uple);
+@@ -601,8 +602,8 @@
+ 	int i;
+ 
+ 	for (i = 0; i < count; i++)
+-		pci_unmap_page(dev, pages[i] << PAGE_SHIFT, PAGE_SIZE,
+-			       PCI_DMA_BIDIRECTIONAL);
++		dma_unmap_page(&dev->dev, pages[i] << PAGE_SHIFT, PAGE_SIZE,
++			       DMA_BIDIRECTIONAL);
+ }
+ 
+ static int build_request(TG_REQ_DESC *sdesc, TG_PAGED_REQUEST *dst, int dsize,
+@@ -730,8 +731,8 @@
+ 		dbuf = (TG_PAGED_BUFFER *)((u64 *)(dbuf + 1) + npages);
+ 
+ 		for (; npages > 0; npages--, pfn++)
+-			pci_unmap_page(dev, (*pfn) << PAGE_SHIFT, PAGE_SIZE,
+-				       PCI_DMA_BIDIRECTIONAL);
++			dma_unmap_page(&dev->dev, (*pfn) << PAGE_SHIFT, PAGE_SIZE,
++				       DMA_BIDIRECTIONAL);
+ 	}
+ 
+ 	release_user_pages(up_list);
+@@ -1301,7 +1302,7 @@
+ 	}
+ #endif
+ 	/* Set DMA ability. Only lower 4G is possible to address */
+-	rc = pci_set_dma_mask(pdev,
++	rc = dma_set_mask(&pdev->dev,
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
+ 		DMA_64BIT_MASK
+ #else
+@@ -1516,7 +1517,7 @@
+ 
+ MODULE_AUTHOR ("Parallels International GmbH");
+ MODULE_DESCRIPTION ("Parallels toolgate driver");
+-MODULE_LICENSE("Parallels");
++MODULE_LICENSE("GPL");
+ #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 0)
+ MODULE_INFO (supported, "external");
+ #endif
+diff -ruN a/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg_compat.h b/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg_compat.h
+--- a/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg_compat.h	2026-10-06 01:03:39.713439180 +0800
++++ b/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg_compat.h	2026-10-06 01:03:39.721347788 +0800
+@@ -61,6 +61,8 @@
+ 
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0)
+ #define PDE_DATA(x) (PDE(x)->data)
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
++#define PDE_DATA(x) pde_data(x)
+ #endif
+ 
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,14)
+@@ -119,8 +121,15 @@
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,5,0) && \
+ 	defined(CONFIG_X86_64) && defined(CONFIG_COMPAT)
+ #include <linux/compat.h>
++#include <asm/compat.h>
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 6, 0)
++/* TIF_IA32 was removed; in_ia32_syscall() is the current check */
++#define	PRL_32BIT_COMPAT_TEST \
++	((in_ia32_syscall()) && (nbytes == sizeof(compat_uptr_t)))
++#else
+ #define	PRL_32BIT_COMPAT_TEST \
+ 	((test_thread_flag(TIF_IA32)) && (nbytes == sizeof(compat_uptr_t)))
++#endif
+ #else
+ #define PRL_32BIT_COMPAT_TEST	0
+ #endif
+@@ -174,6 +183,23 @@
+ 		p->data = data;
+ 	}
+ 	return p;
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
++	/* proc_create_data() takes struct proc_ops since 5.6 */
++	{
++		struct proc_ops *pops = kmalloc(sizeof(*pops), GFP_KERNEL);
++
++		if (!pops)
++			return NULL;
++		memset(pops, 0, sizeof(*pops));
++		pops->proc_open = fops->open;
++		pops->proc_read = fops->read;
++		pops->proc_write = fops->write;
++		pops->proc_lseek = fops->llseek;
++		pops->proc_ioctl = fops->unlocked_ioctl;
++		pops->proc_mmap = fops->mmap;
++		pops->proc_release = fops->release;
++		return proc_create_data(name, mode, parent, pops, data);
++	}
+ #else
+ 	return proc_create_data(name, mode, parent, fops, data);
+ #endif
+@@ -194,7 +220,11 @@
+ #define page_cache_release(x) put_page(x)
+ #endif
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
++/* get_user_pages() lost its vmas argument */
++#define prl_get_user_pages(_1, _2, _3, _4, _5) \
++		get_user_pages(_1, _2, (_3) ? FOLL_WRITE : 0, _4)
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)
+ #define prl_get_user_pages(_1, _2, _3, _4, _5) \
+ 		get_user_pages(_1, _2, (_3) ? FOLL_WRITE : 0, _4, _5)
+ #elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 6, 0)
+二进制文件 a/prl_tg/Toolgate/Guest/Linux/prl_tg/prl_tg.ko.xz 和 b/prl_tg/Toolgate/Guest/Linux/prl_tg/prl_tg.ko.xz 不同
