@@ -1,6 +1,6 @@
 diff -ruN a/prl_eth/pvmnet/ApiNet.h b/prl_eth/pvmnet/ApiNet.h
---- a/prl_eth/pvmnet/ApiNet.h	2026-10-06 01:03:39.712863475 +0800
-+++ b/prl_eth/pvmnet/ApiNet.h	2026-10-06 01:03:39.718534469 +0800
+--- a/prl_eth/pvmnet/ApiNet.h	2017-06-27 01:12:13.000000000 +0800
++++ b/prl_eth/pvmnet/ApiNet.h	2026-10-06 02:05:45.265089702 +0800
 @@ -20,7 +20,7 @@
  // We need some standard types definitions here
  #include "ParallelsTypes.h"
@@ -19,8 +19,8 @@ diff -ruN a/prl_eth/pvmnet/ApiNet.h b/prl_eth/pvmnet/ApiNet.h
  
  #endif // API_NET_H
 diff -ruN a/prl_eth/pvmnet/pvmnet.c b/prl_eth/pvmnet/pvmnet.c
---- a/prl_eth/pvmnet/pvmnet.c	2026-10-06 01:03:39.712806618 +0800
-+++ b/prl_eth/pvmnet/pvmnet.c	2026-10-06 01:03:39.718576223 +0800
+--- a/prl_eth/pvmnet/pvmnet.c	2017-06-26 20:01:21.000000000 +0800
++++ b/prl_eth/pvmnet/pvmnet.c	2026-10-06 02:05:45.265335545 +0800
 @@ -165,21 +165,6 @@
   */
  
@@ -68,8 +68,8 @@ diff -ruN a/prl_eth/pvmnet/pvmnet.c b/prl_eth/pvmnet/pvmnet.c
  MODULE_VERSION(DRV_VERSION);
  MODULE_INFO(supported, "external");
 diff -ruN a/prl_fs/SharedFolders/Guest/Linux/prl_fs/file.c b/prl_fs/SharedFolders/Guest/Linux/prl_fs/file.c
---- a/prl_fs/SharedFolders/Guest/Linux/prl_fs/file.c	2026-10-06 01:03:39.714576049 +0800
-+++ b/prl_fs/SharedFolders/Guest/Linux/prl_fs/file.c	2026-10-06 01:03:39.719353315 +0800
+--- a/prl_fs/SharedFolders/Guest/Linux/prl_fs/file.c	2017-06-26 20:01:21.000000000 +0800
++++ b/prl_fs/SharedFolders/Guest/Linux/prl_fs/file.c	2026-10-06 02:05:45.268322707 +0800
 @@ -129,7 +129,12 @@
  			ret = -EINVAL;
  			goto out;
@@ -128,8 +128,8 @@ diff -ruN a/prl_fs/SharedFolders/Guest/Linux/prl_fs/file.c b/prl_fs/SharedFolder
  #else
  	.readdir	= prlfs_readdir,
 diff -ruN a/prl_fs/SharedFolders/Guest/Linux/prl_fs/inode.c b/prl_fs/SharedFolders/Guest/Linux/prl_fs/inode.c
---- a/prl_fs/SharedFolders/Guest/Linux/prl_fs/inode.c	2026-10-06 01:03:39.714336794 +0800
-+++ b/prl_fs/SharedFolders/Guest/Linux/prl_fs/inode.c	2026-10-06 01:03:39.719122007 +0800
+--- a/prl_fs/SharedFolders/Guest/Linux/prl_fs/inode.c	2017-06-26 20:01:21.000000000 +0800
++++ b/prl_fs/SharedFolders/Guest/Linux/prl_fs/inode.c	2026-10-06 02:05:45.267318203 +0800
 @@ -61,7 +61,12 @@
  	bd->buf = buf;
  	bd->len = len;
@@ -428,8 +428,8 @@ diff -ruN a/prl_fs/SharedFolders/Guest/Linux/prl_fs/inode.c b/prl_fs/SharedFolde
  	inode->i_gid = PRLFS_SB(sb)->gid;
  	if (ino == PRLFS_ROOT_INO) {
 diff -ruN a/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile b/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile
---- a/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile	2026-10-06 01:03:39.714443904 +0800
-+++ b/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile	2026-10-06 01:03:39.719222839 +0800
+--- a/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile	2017-06-26 20:01:21.000000000 +0800
++++ b/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile	2026-10-06 02:05:45.267812896 +0800
 @@ -21,6 +21,10 @@
  
  export DRIVER_DIR
@@ -442,8 +442,8 @@ diff -ruN a/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile b/prl_fs/SharedFold
  
  ifeq "$(wildcard $(DRIVER_DIR)/Makefile.local)" "$(DRIVER_DIR)/Makefile.local"
 diff -ruN a/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile.v26 b/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile.v26
---- a/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile.v26	2026-10-06 01:03:39.714415804 +0800
-+++ b/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile.v26	2026-10-06 01:03:39.719184028 +0800
+--- a/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile.v26	2017-06-26 20:01:21.000000000 +0800
++++ b/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile.v26	2026-10-06 02:05:45.267579607 +0800
 @@ -7,10 +7,10 @@
  obj-m := $(DRIVER).o
  $(DRIVER)-objs := super.o inode.o file.o interface.o
@@ -458,8 +458,8 @@ diff -ruN a/prl_fs/SharedFolders/Guest/Linux/prl_fs/Makefile.v26 b/prl_fs/Shared
  clean:
  	make -C $(KERNEL_DIR) M=$(PWD) clean
 diff -ruN a/prl_fs/SharedFolders/Guest/Linux/prl_fs/prlfs_compat.h b/prl_fs/SharedFolders/Guest/Linux/prl_fs/prlfs_compat.h
---- a/prl_fs/SharedFolders/Guest/Linux/prl_fs/prlfs_compat.h	2026-10-06 01:03:39.714491449 +0800
-+++ b/prl_fs/SharedFolders/Guest/Linux/prl_fs/prlfs_compat.h	2026-10-06 01:03:39.719081209 +0800
+--- a/prl_fs/SharedFolders/Guest/Linux/prl_fs/prlfs_compat.h	2017-06-26 20:01:21.000000000 +0800
++++ b/prl_fs/SharedFolders/Guest/Linux/prl_fs/prlfs_compat.h	2026-10-06 02:05:45.266983812 +0800
 @@ -9,6 +9,9 @@
  #ifndef __PRL_FS_COMPAT_H__
  #define __PRL_FS_COMPAT_H__
@@ -493,8 +493,8 @@ diff -ruN a/prl_fs/SharedFolders/Guest/Linux/prl_fs/prlfs_compat.h b/prl_fs/Shar
  	return proc_create(name, mode, parent, fops);
  #endif
 diff -ruN a/prl_fs/SharedFolders/Guest/Linux/prl_fs/super.c b/prl_fs/SharedFolders/Guest/Linux/prl_fs/super.c
---- a/prl_fs/SharedFolders/Guest/Linux/prl_fs/super.c	2026-10-06 01:03:39.714515851 +0800
-+++ b/prl_fs/SharedFolders/Guest/Linux/prl_fs/super.c	2026-10-06 01:03:39.719300643 +0800
+--- a/prl_fs/SharedFolders/Guest/Linux/prl_fs/super.c	2017-06-26 20:01:21.000000000 +0800
++++ b/prl_fs/SharedFolders/Guest/Linux/prl_fs/super.c	2026-10-06 02:05:45.268069517 +0800
 @@ -13,6 +13,8 @@
  #include <linux/seq_file.h>
  #include <linux/ctype.h>
@@ -655,8 +655,8 @@ diff -ruN a/prl_fs/SharedFolders/Guest/Linux/prl_fs/super.c b/prl_fs/SharedFolde
  MODULE_INFO (supported, "external");
  #endif
 diff -ruN a/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prl_fs_freeze.c b/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prl_fs_freeze.c
---- a/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prl_fs_freeze.c	2026-10-06 01:03:39.715151060 +0800
-+++ b/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prl_fs_freeze.c	2026-10-06 01:03:39.720553420 +0800
+--- a/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prl_fs_freeze.c	2017-06-26 20:01:21.000000000 +0800
++++ b/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prl_fs_freeze.c	2026-10-06 02:05:45.271722509 +0800
 @@ -15,6 +15,7 @@
  #include <linux/module.h>
  #include <linux/fs.h>
@@ -798,8 +798,8 @@ diff -ruN a/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prl_fs_freeze.c b/prl_
  MODULE_INFO(supported, "external");
  #endif
 diff -ruN a/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prlfs_freeze_compat.h b/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prlfs_freeze_compat.h
---- a/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prlfs_freeze_compat.h	2026-10-06 01:03:39.715186287 +0800
-+++ b/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prlfs_freeze_compat.h	2026-10-06 01:03:39.720521487 +0800
+--- a/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prlfs_freeze_compat.h	2017-06-26 20:01:21.000000000 +0800
++++ b/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prlfs_freeze_compat.h	2026-10-06 02:05:45.271415884 +0800
 @@ -7,6 +7,9 @@
  #ifndef __PRL_FSFREEZE_COMPAT_H__
  #define __PRL_FSFREEZE_COMPAT_H__
@@ -833,8 +833,8 @@ diff -ruN a/prl_fs_freeze/Snapshot/Guest/Linux/prl_freeze/prlfs_freeze_compat.h 
  	return proc_create(name, mode, parent, fops);
  #endif
 diff -ruN a/prl_tg/Toolgate/Guest/Linux/prl_tg/Makefile.v26 b/prl_tg/Toolgate/Guest/Linux/prl_tg/Makefile.v26
---- a/prl_tg/Toolgate/Guest/Linux/prl_tg/Makefile.v26	2026-10-06 01:03:39.713501250 +0800
-+++ b/prl_tg/Toolgate/Guest/Linux/prl_tg/Makefile.v26	2026-10-06 01:03:39.721385970 +0800
+--- a/prl_tg/Toolgate/Guest/Linux/prl_tg/Makefile.v26	2017-06-26 20:01:21.000000000 +0800
++++ b/prl_tg/Toolgate/Guest/Linux/prl_tg/Makefile.v26	2026-10-06 02:05:45.273734064 +0800
 @@ -15,12 +15,13 @@
  SRC ?= /lib/modules/$(KVER)/build
  
@@ -851,8 +851,8 @@ diff -ruN a/prl_tg/Toolgate/Guest/Linux/prl_tg/Makefile.v26 b/prl_tg/Toolgate/Gu
  clean:
  	rm -rf *.o *.ko *.mod* *symvers .tmp_versions .*.cmd prl_tg.ver 
 diff -ruN a/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg.c b/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg.c
---- a/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg.c	2026-10-06 01:03:39.713583149 +0800
-+++ b/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg.c	2026-10-06 01:03:39.721420273 +0800
+--- a/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg.c	2017-06-26 20:01:21.000000000 +0800
++++ b/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg.c	2026-10-06 02:05:45.274588300 +0800
 @@ -9,6 +9,7 @@
  #include <linux/module.h>
  #include <linux/kernel.h>
@@ -995,7 +995,33 @@ diff -ruN a/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg.c b/prl_tg/Toolgate/Guest/L
  }
  
  static int build_request(TG_REQ_DESC *sdesc, TG_PAGED_REQUEST *dst, int dsize,
-@@ -730,8 +731,8 @@
+@@ -634,8 +635,12 @@
+ 
+ 	sbuf = sdesc->sbuf;
+ 	if (src->InlineByteCount != 0)
+-		memcpy(&dst->RequestPages[dpages], sdesc->idata,
+-							src->InlineByteCount);
++		/* RequestPages is a variable-length trailing store that
++		 * deliberately spans sizeof(TG_PAGED_REQUEST); the fortify
++		 * memcpy wrapper cannot express that, so use the raw one */
++		__memcpy((char *)dst->RequestPages +
++				dpages * sizeof(dst->RequestPages[0]),
++				sdesc->idata, src->InlineByteCount);
+ 
+ 	dbuf = (TG_PAGED_BUFFER *)
+ 		((char *)&dst->RequestPages[dpages] + INLINE_SIZE(src));
+@@ -704,7 +709,9 @@
+ 
+ 	if (src->InlineByteCount != 0) {
+ 		if (dst->Status == TG_STATUS_SUCCESS)
+-			memcpy(sdesc->idata, &dst->RequestPages[dpages],
++			__memcpy(sdesc->idata,
++				(char *)dst->RequestPages +
++				dpages * sizeof(dst->RequestPages[0]),
+ 				src->InlineByteCount);
+ 	}
+ 	sbuf = sdesc->sbuf;
+@@ -730,8 +737,8 @@
  		dbuf = (TG_PAGED_BUFFER *)((u64 *)(dbuf + 1) + npages);
  
  		for (; npages > 0; npages--, pfn++)
@@ -1006,7 +1032,7 @@ diff -ruN a/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg.c b/prl_tg/Toolgate/Guest/L
  	}
  
  	release_user_pages(up_list);
-@@ -1301,7 +1302,7 @@
+@@ -1301,7 +1308,7 @@
  	}
  #endif
  	/* Set DMA ability. Only lower 4G is possible to address */
@@ -1015,7 +1041,7 @@ diff -ruN a/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg.c b/prl_tg/Toolgate/Guest/L
  #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
  		DMA_64BIT_MASK
  #else
-@@ -1516,7 +1517,7 @@
+@@ -1516,7 +1523,7 @@
  
  MODULE_AUTHOR ("Parallels International GmbH");
  MODULE_DESCRIPTION ("Parallels toolgate driver");
@@ -1025,8 +1051,8 @@ diff -ruN a/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg.c b/prl_tg/Toolgate/Guest/L
  MODULE_INFO (supported, "external");
  #endif
 diff -ruN a/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg_compat.h b/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg_compat.h
---- a/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg_compat.h	2026-10-06 01:03:39.713439180 +0800
-+++ b/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg_compat.h	2026-10-06 01:03:39.721347788 +0800
+--- a/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg_compat.h	2017-06-26 20:01:21.000000000 +0800
++++ b/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg_compat.h	2026-10-06 02:05:45.273631280 +0800
 @@ -61,6 +61,8 @@
  
  #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0)
@@ -1089,4 +1115,3 @@ diff -ruN a/prl_tg/Toolgate/Guest/Linux/prl_tg/prltg_compat.h b/prl_tg/Toolgate/
  #define prl_get_user_pages(_1, _2, _3, _4, _5) \
  		get_user_pages(_1, _2, (_3) ? FOLL_WRITE : 0, _4, _5)
  #elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 6, 0)
-二进制文件 a/prl_tg/Toolgate/Guest/Linux/prl_tg/prl_tg.ko.xz 和 b/prl_tg/Toolgate/Guest/Linux/prl_tg/prl_tg.ko.xz 不同

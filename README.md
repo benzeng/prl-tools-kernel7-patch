@@ -104,10 +104,36 @@ cd kmods && make -f Makefile.kmods   # 应产出 4 个 .ko
 - 修复头文件搜索路径：`<Interfaces/*.h>`、`"Toolgate/..."` 等相对包含在新 kbuild 下
   解析不到，统一加 `-I$(src)/...`
 
-**运行时告警清理（UBSAN）**
+**运行时告警清理（UBSAN / FORTIFY）**
 - `struct page *p[0]` → 标准柔性数组 `p[]`（prltg.c）
 - `de->name[name_len]` 下标越界误报 → 等价指针写法（file.c；此处**不能**改成柔性数组，
   否则 `sizeof(prlfs_dirent)` 变化会破坏与宿主机的目录记录对齐）
+- `build_request`/`complete_request` 中写入 `RequestPages[dpages]` 触发 FORTIFY
+  field-spanning 告警 → 改用未检查的 `__memcpy`（`RequestPages[1]` 同样是刻意的
+  变长尾存储——`paged_request_size()` 的注释明确"first page index is part of
+  TG_PAGED_REQUEST"，改柔性数组会破坏 dsize 计算）
+
+## 无 KMS 环境的图形界面（可选）
+
+PD 12 的虚拟显卡（`1ab8:4005`）在内核 7.x 没有任何 KMS/DRM 驱动，gdm 会因
+"没有主 GPU"拒绝启动。已在 Kali 上验证的方案：
+
+1. 让 logind 承认图形能力（`/etc/udev/rules.d/61-fb-master-of-seat.rules`）：
+   ```
+   SUBSYSTEM=="graphics", KERNEL=="fb0", TAG+="seat", TAG+="master-of-seat"
+   ```
+   之后 `udevadm control --reload && udevadm trigger -c add --subsystem-match=graphics`
+2. Xorg 用 fbdev 直驱帧缓冲（`/etc/X11/xorg.conf.d/`）：
+   ```
+   Section "Device"
+       Identifier "Parallels VGA"
+       Driver     "fbdev"
+       Option     "fbdev" "/dev/fb0"
+   EndSection
+   ```
+3. 显示管理器换 lightdm（gdm 硬性要求 DRM 设备）。
+4. 如需把虚拟显卡从 prl_tg 解绑（vesa 直驱场景），可在显示管理器启动前对
+   `/sys/bus/pci/drivers/prl_tg/unbind` 写入 `0000:01:00.0`（fbdev 方案不需要）。
 
 **许可证声明**
 - 四个模块的 `MODULE_LICENSE("Parallels")` 改为 `("GPL")`：新内核 modpost 拒绝
